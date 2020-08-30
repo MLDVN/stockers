@@ -16,8 +16,11 @@ CREDENTIALS_JSON = './credentials.json'
 STORAGE_JSON = './storage.json'
 
 
+def compute_ema(df, days):
+	return round(df['Close'].ewm(span=days, adjust=False).mean(), 2)
 
-def compute_ma(df, days):
+
+def compute_sma(df, days):
 	return round(df['Close'].rolling(window=days).mean(), 2)
 
 
@@ -39,20 +42,33 @@ def compute_rsi(df, time_window=14):
 	return round(rsi, 2)
 
 
-def send_mail_alert(ticker, my_alert_message):
+def compute_macd(df, fast_period=12, slow_period=26, signal_period=9):
+	fast_ema = compute_ema(df, fast_period)
+	slow_ema = compute_ema(df, slow_period)
+	macd = fast_ema - slow_ema
+	
+	df2 = df.copy()
+	df2['Close'] = macd
+	signal_ema = compute_ema(df2, signal_period)
+	
+	macd_histo = round(macd - signal_ema, 3)
+	# print(f"MACD = {macd}")
+	return macd_histo
+
+def send_mail_alert(alert_message):
 
 	time_now = datetime.now().isoformat(' ', 'seconds')
 
 	# TODO: Get password from ./config file
-	password = getpass("Insert your password here:\n")
 	sender = input("Insert your email here:\n")
-	receiver = ['vladmoldovan56@gmail.com','octavbirsan@gmail.com']
-	message = """This message is sent from Stockers."""
+	password = getpass("Insert your password here:\n")
+	receiver = ['vladmoldovan56@gmail.com', 'sirbu96vlad@gmail.com']
+	# receiver = ['vladmoldovan56@gmail.com','octavbirsan@gmail.com', 'adrian_steau@yahoo.com']
 	
 
 	msg = EmailMessage()
-	msg.set_content(message)
-	msg['Subject'] = f"{time_now}: Stockers signal on {ticker}."
+	msg.set_content(alert_message)
+	msg['Subject'] = f"{time_now}: Stockers signals for today."
 	msg['From'] = sender
 	msg['To'] = receiver
 
@@ -63,78 +79,133 @@ def send_mail_alert(ticker, my_alert_message):
 		print("Email alert sent successfully!")
 
 
-
-def get_bd_bo(ticker=None):
+def compute_ticker_df(ticker=None, period='max'):
 	# ticker_stats = {}
 	# for info in INFO_STATS:
-	# 	if ticker.info[info]:
-	# 		ticker_stats[info] = ticker.info[info]
+		# if ticker.info[info]:
+			# ticker_stats[info] = ticker.info[info]
 
-	df = ticker.history(period='max')
+	ticker = yf.Ticker(ticker)
+	df = ticker.history(period=period)
 
-	df['MA_5'] = compute_ma(df, 5)
-	df['MA_10'] = compute_ma(df, 10)
-	df['MA_20'] = compute_ma(df, 20)
-	df['MA_200'] = compute_ma(df, 200)
-	# print(df.loc[df['Dividends'] != 0.0])
-
+	df['Ticker'] = ticker.ticker
+	df['EMA_5'] = compute_ema(df, 5)
+	# df['MA_5'] = compute_sma(df, 5)
+	df['MA_10'] = compute_sma(df, 10)
+	df['MA_20'] = compute_sma(df, 20)
+	df['MA_200'] = compute_sma(df, 200)
 	df['RSI'] = compute_rsi(df, 14)
+	df['MACD'] = compute_macd(df)
+
+	# print(df.loc[df['Dividends'] != 0.0])
 	# df = df.drop(columns=['Volume', 'Stock Splits'])
-
-	df_nostru=pd.DataFrame()
-	df_nostru['Open']=df['Open']
-	df_nostru['Close']=df['Close']
-	df_nostru['MA_20']=df['MA_20']
-	df_nostru['RSI']=df['RSI']
-	# df_nostru['Current_Price']=ticker.info['regularMarketPrice']
-	print(df_nostru)
-	# print(f"CURRENT PRICE AVEM?? {ticker.info['regularMarketPrice']}")
-	# df=df[:-47]
-	last_day = df.iloc[-1]
-	previous_day = df.iloc[-2]
-	if last_day['Open'] < last_day['MA_20'] and last_day['Close'] > last_day['MA_20']:
-		print(f"BREAKOUT ON {ticker}!!! PRICE JUST CLOSED ABOVE THE MA_20")
 	
-	#piata deschisa
-	if last_day['Open'] > last_day['MA_20'] and last_day['Close'] > last_day['MA_20'] and previous_day['Close'] < previous_day['MA_20']:
-		print(f"BREAKOUT ON {ticker.ticker}!! PRICE JUST OPENED ABOVE THE MA_20")
-
-
-	if last_day['Close'] < last_day['MA_20'] and last_day['Open'] > last_day['MA_20']:
-		print(f"BREAKDOWN ON {ticker}!!!PRICE JUST CLOSED BELOW THE MA_20")
+	df = df.reset_index().set_index('Ticker')
+	# df = df[['Date', 'Open', 'Close', 'RSI', 'MA_5', 'MA_20']]
 	
-	#
-	if previous_day['Close'] > previous_day['MA_20'] and last_day['Close'] < last_day['MA_20'] and last_day['Open'] < last_day['MA_20']:
-		print(f"BREAKDOWN ON {ticker.ticker}!! PRICE JUST OPENED BELOW THE MA_20")
-
-
-	if df.iloc[-1]['Dividends']:
-		print("EX DIVIDEND DATE!!!")
+	# print(f'TICKER={ticker.ticker}\n{df}\n')
+	return df
 
 
 def get_tickers(url):
 	 sheets = Sheets.from_files(CREDENTIALS_JSON, STORAGE_JSON)
-	 worksheet = sheets.get(url).find('Sheet2')
+	 worksheet = sheets.get(url).find('Sheet3')
 	 df_worksheet = worksheet.to_frame()
-	 # print(type(df_worksheet))
+
 	 return df_worksheet['TICKER'].tolist()
 
 
+def compute_last_day_market_df(ticker_list):
+	# COLUMN_NAMES = ['Date', 'Ticker', 'Close', 'RSI', 'MACD', 'MA_5', 'MA_20', 'MA_200']
+	# df_market = pd.DataFrame(columns=COLUMN_NAMES)
+	
+	df_market = pd.DataFrame()
+
+	for ticker in ticker_list:
+		df_ticker = compute_ticker_df(ticker=ticker).tail(1)
+		df_market = df_market.append(df_ticker)
+
+
+	return df_market.sort_values(by=['RSI'])
+
+
+def get_breakdowns_breakouts(ticker, tickers_to_manually_check, message):
+
+	# tickers_to_manually_check = set()
+	# message = []
+
+	df_ticker = compute_ticker_df(ticker=ticker)
+
+	last_day = df_ticker.iloc[-1]
+	previous_day = df_ticker.iloc[-2]
+
+	if last_day['Open'] < last_day['MA_20'] and last_day['Close'] > last_day['MA_20']:
+		tickers_to_manually_check.add(ticker)
+		message.append(f"{ticker}: BREAKOUT!!! PRICE JUST CLOSED ABOVE THE MA_20.")
+		print(f"{ticker}: BREAKOUT!!! PRICE JUST CLOSED ABOVE THE MA_20.")
+	
+	#piata deschisa
+	if last_day['Open'] > last_day['MA_20'] and last_day['Close'] > last_day['MA_20'] and previous_day['Close'] < previous_day['MA_20']:
+		tickers_to_manually_check.add(ticker)
+		message.append(f"{ticker}: BREAKOUT!! PRICE JUST OPENED ABOVE THE MA_20.")
+		print(f"{ticker}: BREAKOUT!! PRICE JUST OPENED ABOVE THE MA_20.")
+
+	if last_day['Close'] < last_day['MA_20'] and last_day['Open'] > last_day['MA_20']:
+		tickers_to_manually_check.add(ticker)
+		message.append(f"{ticker}: BREAKDOWN!!!PRICE JUST CLOSED BELOW THE MA_20.")
+		print(f"{ticker}: BREAKDOWN!!!PRICE JUST CLOSED BELOW THE MA_20.")
+	
+	#
+	if previous_day['Close'] > previous_day['MA_20'] and last_day['Close'] < last_day['MA_20'] and last_day['Open'] < last_day['MA_20']:
+		tickers_to_manually_check.add(ticker)
+		message.append(f"{ticker}: BREAKDOWN!! PRICE JUST OPENED BELOW THE MA_20.")
+		print(f"{ticker}: BREAKDOWN!! PRICE JUST OPENED BELOW THE MA_20.")
+
+
+	if last_day['RSI'] < 30 and previous_day['RSI'] > 30:
+		tickers_to_manually_check.add(ticker)
+		message.append(f"{ticker}: RSI JUST CLOSED BELOW 30!!!!")
+		print(f"{ticker}: RSI JUST CLOSED BELOW 30!!!!")
+
+	if last_day['RSI'] > 70 and previous_day['RSI'] < 70:
+		tickers_to_manually_check.add(ticker)
+		message.append(f"{ticker}: RSI JUST CLOSED ABOVE 70!!!!")
+		print(f"{ticker}: RSI JUST CLOSED ABOVE 70!!!!")
+
+
+	if df_ticker.iloc[-1]['Dividends']:
+		tickers_to_manually_check.add(ticker)
+		message.append(f"{ticker}: EX DIVIDEND DATE!!!")
+		print(f"{ticker}: EX DIVIDEND DATE!!!")
+
+
+	# return tickers_to_manually_check, message 
+
+
 def main():
-	# ticker = yf.Ticker('DFS')
-	# get_bd_bo(ticker)
-
-
+	## aici imi construiesc market_df
 	ticker_list = get_tickers(STOCKERS_URL)
-	print(ticker_list)
+	df_market = compute_last_day_market_df(ticker_list)
+	# df_market = pd.read_csv('last_day.csv')
+	df_market.to_csv('last_day.csv')
+	# print(df_market)
+	##
+
+	# df_market = df_market.head(20).append(df_market.tail(20))
 
 
-	for elem in ticker_list:
-		ticker = yf.Ticker(elem)
-		print(f"TICKER {elem}")
-		get_bd_bo(ticker)
+	tickers_to_manually_check = set()
+	alert_message = []
+
+	for ticker in ticker_list:
+		get_breakdowns_breakouts(ticker, tickers_to_manually_check, alert_message) 
+
+	tickers_to_manually_check = ', '.join(tickers_to_manually_check)
+	alert_message = '\n'.join(map(str, alert_message))
+	alert_message = 'Tickers you should check: ' + tickers_to_manually_check + '\n' + alert_message + '\n\n' + df_market.to_string()
+	# print(alert_message)
+	send_mail_alert(alert_message=alert_message)
 	
 	
 if __name__ == '__main__':
-	# main()
-	send_mail_alert("XOM",1)
+	main()
