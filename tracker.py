@@ -69,7 +69,7 @@ def compute_macd(df, fast_period=12, slow_period=26, signal_period=9):
 	signal_ema = compute_ema(df2, signal_period)
 	
 	macd_histo = round(macd - signal_ema, 3)
-	# print(f"MACD = {macd}")
+
 	return macd_histo
 
 
@@ -79,7 +79,7 @@ def send_mail_alert(alert_message):
 
 	sender, password = get_credentials()
 	# receiver = ['vladmoldovan56@gmail.com']
-	receiver = ['vladmoldovan56@gmail.com','octavbirsan@gmail.com', 'adrian_steau@yahoo.com', 'sirbu96vlad@gmail.com']
+	receiver = ['vladmoldovan56@gmail.com','octavbirsan@gmail.com', 'adrian_steau@yahoo.com', 'sirbu96vlad@gmail.com', 'bogdanrogojan96@gmail.com',]
 	
 
 	msg = EmailMessage()
@@ -120,7 +120,6 @@ def compute_ticker_df(ticker=None, period='max'):
 		df = df.reset_index().set_index('Ticker')
 		# df = df[['Date', 'Open', 'Close', 'RSI', 'MA_5', 'MA_20']]
 	
-		# print(f'TICKER={ticker.ticker}\n{df}\n')
 		return df
 
 	except:
@@ -145,7 +144,7 @@ def compute_last_day_market_df(ticker_list):
 		df_ticker = compute_ticker_df(ticker=ticker)
 		if not df_ticker.empty:
 			df_market = df_market.append(df_ticker.tail(1)) 
-			df_market.sort_values(by=['RSI'])
+			df_market = df_market.sort_values(by=['RSI'])
 
 	if not df_market.empty:
 		return df_market
@@ -240,8 +239,10 @@ def main():
 
 	if not df_market.empty:
 		df_market.to_csv('last_day.csv')
-	# print(df_market)
 	##
+
+	df_market = compute_last_day_market_df(ticker_list)
+	print(df_marzket)
 
 	# df_market = df_market.head(20).append(df_market.tail(20))
 
@@ -260,7 +261,7 @@ def main():
 	alert_message = '\n'.join(map(str, alert_message))
 	alert_message = 'Tickers you should check: ' + tickers_to_manually_check + '\n\n' + alert_message + '\n\n' + df_market.to_string()
 
-	print(alert_message)
+	# print(alert_message)
 	send_mail_alert(alert_message=alert_message)
 	
 	
