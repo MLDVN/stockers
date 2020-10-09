@@ -242,7 +242,7 @@ def main():
 	##
 
 	df_market = compute_last_day_market_df(ticker_list)
-	print(df_marzket)
+	print(df_market)
 
 	# df_market = df_market.head(20).append(df_market.tail(20))
 
