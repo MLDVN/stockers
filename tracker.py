@@ -1,3 +1,4 @@
+import argparse
 import os, time
 import smtplib, ssl
 import pandas as pd
@@ -13,12 +14,19 @@ INFO_STATS = ['previousClose','regularMarketOpen','regularMarketDayHigh','regula
 			'morningStarRiskRating','morningStarOverallRating','regularMarketPrice','dayHigh','dayLow',
 			'fiftyTwoWeekLow','fiftyTwoWeekHigh','exDividendDate','fiftyDayAverage','twoHundredDayAverage',
 			'dividendRate','trailingAnnualDividendRate']
+RECEIVERS = ['vladmoldovan56@gmail.com','octavbirsan@gmail.com', 'adrian_steau@yahoo.com', 'sirbu96vlad@gmail.com', 'bogdanrogojan96@gmail.com', 'barb.alin.gabrial.pp@gmail.com']
+
+
 CREDENTIALS_JSON = './credentials.json'
 STORAGE_JSON = './storage.json'
 CONFIG_FILE = '.config'
 
+def get_parser():
+	parser = argparse.ArgumentParser(description='Process Stockers Tracker:P')
+	parser.add_argument('profile', type=string, nargs='',default='all'
+                    help='Value for members profiles')
 
-
+	print(parser)
 def get_credentials(account='email'):
 	with open(CONFIG_FILE) as f:
 		lines = f.readlines()
@@ -78,15 +86,13 @@ def send_mail_alert(alert_message):
 	time_now = datetime.now().isoformat(' ', 'seconds')
 
 	sender, password = get_credentials()
-	# receiver = ['vladmoldovan56@gmail.com']
-	receiver = ['vladmoldovan56@gmail.com','octavbirsan@gmail.com', 'adrian_steau@yahoo.com', 'sirbu96vlad@gmail.com', 'bogdanrogojan96@gmail.com',]
-	
+	receivers = RECEIVERS
 
 	msg = EmailMessage()
 	msg.set_content(alert_message)
 	msg['Subject'] = f"{time_now}: Stockers signals for today."
 	msg['From'] = sender
-	msg['To'] = receiver
+	msg['To'] = receivers
 
 	context = ssl.create_default_context()
 	with smtplib.SMTP_SSL("smtp.gmail.com", port=465, context=context) as server:
@@ -126,9 +132,9 @@ def compute_ticker_df(ticker=None, period='max'):
 		print(f"Ticker {ticker} failed!")
 		return pd.DataFrame()
 
-def get_tickers(url):
+def get_tickers(url, sheet):
 	 sheets = Sheets.from_files(CREDENTIALS_JSON, STORAGE_JSON)
-	 worksheet = sheets.get(url).find('Sheet3')
+	 worksheet = sheets.get(url).find(sheet)
 	 df_worksheet = worksheet.to_frame()
 
 	 return df_worksheet['TICKER'].tolist()
@@ -230,7 +236,10 @@ def get_breakdowns_breakouts(ticker, tickers_to_manually_check, message):
 
 def main():
 	## aici imi construiesc market_df
-	ticker_list = get_tickers(STOCKERS_URL)
+
+	argp = get_parser()
+	sheet = argp['profile']
+	ticker_list = get_tickers(STOCKERS_URL, sheet)
 
 	if os.path.getmtime('last_day.csv') < time.time() - 12 * 3600:
 		df_market = compute_last_day_market_df(ticker_list)
