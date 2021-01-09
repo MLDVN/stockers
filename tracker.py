@@ -4,11 +4,11 @@ import smtplib, ssl
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from gsheets import Sheets
+import gspread
 from datetime import datetime
 from getpass import getpass
 from email.message import EmailMessage
-from tabulate import tabulate
+# from tabulate import tabulate
 
 STOCKERS_URL = 'https://docs.google.com/spreadsheets/d/1zEt_CQo8RI808xXFARTPvcTD7Rop_9zQ5Uw8Uq-Ywmk/edit#gid=0'
 
@@ -20,8 +20,7 @@ RECEIVERS = ['vladmoldovan56@gmail.com','octavbirsan@gmail.com', 'adrian_steau@y
 RECEIVERS_SHORTLIST = ['vladmoldovan56@gmail.com', 'adrian_steau@yahoo.com', 'sirbu96vlad@gmail.com']
 
 
-CREDENTIALS_JSON = './credentials.json'
-STORAGE_JSON = './storage.json'
+CREDENTIALS_JSON = 'stockers_service_key.json'
 CONFIG_FILE = '.config'
 
 # def get_parser():
@@ -38,7 +37,7 @@ def get_credentials(account='email'):
 
 	for idx, line in enumerate(lines):
 		if line.rstrip('\n') == f'[{account}]':
-			break 
+			break
 
 	user = (lines[idx+1].rstrip('\n').split('='))[1]
 	pw = lines[idx+2].rstrip('\n').split('=')[1]
@@ -71,7 +70,7 @@ def compute_ema(df, days):
 def compute_sma(df, days, shifted=False):
 	if shifted:
 		return df['Close'].shift().rolling(window=days).mean()
-	else:	
+	else:
 		return round(df['Close'].rolling(window=days).mean(), 2)
 
 
@@ -89,7 +88,7 @@ def compute_rsi(df, time_window=14):
 
 	rs = abs(up_chg_avg/down_chg_avg)
 	rsi = 100 - 100/(1+rs)
-	
+
 	return round(rsi, 2)
 
 
@@ -97,11 +96,11 @@ def compute_macd(df, fast_period=12, slow_period=26, signal_period=9):
 	fast_ema = compute_ema(df, fast_period)
 	slow_ema = compute_ema(df, slow_period)
 	macd = fast_ema - slow_ema
-	
+
 	df_copy = df.copy()
 	df_copy['Close'] = macd
 	signal_ema = compute_ema(df_copy, signal_period)
-	
+
 	macd_histo = round(macd - signal_ema, 3)
 
 	return macd_histo
@@ -125,7 +124,7 @@ def compute_box(df, trailing_days=4, threshold_percentage=0.04):
 		abs(df['Close'] - df['EMA_5']) < (threshold_percentage * df['EMA_5']), 
 	]
 	values = ['OUT', 'IN']
-	
+
 	return np.select(conditions, values)
 
 def compute_break_sma_20(df):
@@ -147,7 +146,7 @@ def compute_stage(df):
 		# (df['Break_20'] == '\u2798') | (df['Close'] < df['SMA_20'] & df['Box'] == 'OUT'),
 	]
 	values = [2, 4, 1, 3]
-	
+
 	return np.select(conditions, values, default='???')
 
 
@@ -160,11 +159,11 @@ def compute_ticker_df(ticker=None, period='max'):
 	try:
 		ticker = yf.Ticker(ticker)
 		df = ticker.history(period=period)
-	
+
 	except:
 		print(f"Ticker {ticker} failed!")
 		return pd.DataFrame()
-	
+
 	else:
 		df['Ticker'] = ticker.ticker
 		df['EMA_5'] = compute_ema(df, 5)
@@ -182,7 +181,7 @@ def compute_ticker_df(ticker=None, period='max'):
 
 		# df = df.drop(columns=['Volume', 'Stock Splits'])
 		df = df.reset_index().set_index('Ticker')
-	
+
 		return df
 
 def compute_last_day_market_df(ticker_list):
@@ -200,6 +199,18 @@ def compute_last_day_market_df(ticker_list):
 		return df_market
 	else:
 		return pd.DataFrame()
+
+
+def get_market_df(ticker_list):
+	if os.path.isfile('last_day.csv') and os.path.getmtime('last_day.csv') > time.time() - 12 * 3600:
+		df_market = pd.read_csv('last_day.csv', index_col='Ticker')
+	else:
+		df_market = compute_last_day_market_df(ticker_list)
+		if not df_market.empty:
+			df_market.to_csv('last_day.csv')
+
+	return df_market
+
 
 ## obsolete
 def get_bo_bd(ticker, df_ticker, tickers_to_manually_check, message):
@@ -227,49 +238,52 @@ def get_bo_bd(ticker, df_ticker, tickers_to_manually_check, message):
 	return tickers_to_manually_check, message
 
 
-def get_tickers(url, sheet):
-	 sheets = Sheets.from_files(CREDENTIALS_JSON, STORAGE_JSON)
-	 worksheet = sheets.get(url).find(sheet)
-	 df_worksheet = worksheet.to_frame()
+def get_worksheet(url, sheet):
+	gconn = gspread.service_account(filename=CREDENTIALS_JSON)
+	worksheet = gconn.open_by_url(url).worksheet(sheet)
 
-	 return df_worksheet['TICKER'].tolist()
+	return worksheet
 
 
 def main():
 	tickers_to_manually_check = set()
 	alert_message = []
 
-	## aici imi iau lista de tickere de pe gsheet in functie de profil
+	## iau profilul dat ca argument
 	# argp = get_parser()
-	# sheet = argp['profile']
-	sheet = "Moldo_Watchlist"
-	ticker_list = get_tickers(STOCKERS_URL, sheet)
+	# sheet_name = argp['profile']
 
-	## aici imi construiesc market_df
-	if os.path.isfile('last_day.csv') and os.path.getmtime('last_day.csv') > time.time() - 12 * 3600:
-		df_market = pd.read_csv('last_day.csv')
-	else:
-		df_market = compute_last_day_market_df(ticker_list)
+	## iau worksheet-ul de lucru in functie de profil
+	sheet_name = "Moldo_Watchlist"
+	# worksheet = get_worksheet(STOCKERS_URL, sheet_name)
+	gconn = gspread.service_account(filename=CREDENTIALS_JSON)
+	worksheet = gconn.open_by_url(STOCKERS_URL).worksheet(sheet_name)
 
-	if not df_market.empty:
-		df_market.to_csv('last_day.csv')
 
+
+	## iau lista de tickere
+	# ticker_list = pd.DataFrame(worksheet.get_all_records())['TICKER'].tolist()
+	df_worksheet = pd.DataFrame(worksheet.get_all_records())
+	ticker_list = df_worksheet['TICKER'].tolist()
+
+	## construiesc market_df
+	df_market = get_market_df(ticker_list)
+	df_market = df_market.reset_index()
 	print(df_market)
 
-	## aici imi construiesc alerta
-	tickers_to_manually_check = ', '.join(tickers_to_manually_check)
-	alert_message = '\n'.join(map(str, alert_message))
-	alert_message = 'Tickers you should check: ' + tickers_to_manually_check + '\n\n' + alert_message + '\n\n' + tabulate(df_market, headers='keys', tablefmt='psql')
+	## incarc market_df pe gsheet
+	# worksheet.update([df_market.columns.values.tolist()] + df_market.values.tolist())
 
-	print(alert_message)
-	# send_mail_alert(alert_message=alert_message)
-	
-	
+
+	# ## construiesc si trimit alerta
+	# tickers_to_manually_check = ', '.join(tickers_to_manually_check)
+	# alert_message = '\n'.join(map(str, alert_message))
+	# alert_message = 'Tickers you should check: ' + tickers_to_manually_check + '\n\n' + alert_message + '\n\n'
+	# # alert_message = 'Tickers you should check: ' + tickers_to_manually_check + '\n\n' + alert_message + '\n\n' + tabulate(df_market, headers='keys', tablefmt='psql')
+
+	# print(alert_message)
+	# # send_mail_alert(alert_message=alert_message)
+
+
 if __name__ == '__main__':
 	main()
-	# tickers_to_manually_check = set()
-	# alert_message = []
-	# ticker = 'BYND'
-	# df_ticker = compute_ticker_df(ticker)
-	# print(df_ticker[150:210])
-	# print(df_ticker[-100:])
