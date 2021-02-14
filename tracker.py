@@ -1,6 +1,8 @@
 import argparse
-import os, time
-import smtplib, ssl
+import os
+import time
+import smtplib
+import ssl
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -30,6 +32,24 @@ CONFIG_FILE = '.config'
 
 # 	print(parser)
 
+def scrape_t212_tickers():
+	import requests
+	import bs4
+	import re
+	mappings = {'London Stock Exchange': '.L', 'Deutsche Börse Xetra': '.DE', 'Euronext Paris': '.PA', 'Bolsa de Madrid': '.MC', 
+				'Euronext Netherlands': '.AS', 'LSE AIM': '.L', 'SIX Swiss': '.SW', 'NASDAQ': '', 
+				'NON-ISA NASDAQ': '', 'NON-ISA NYSE': '', 'NYSE': '', 'OTC Markets': '', 'NON-ISA London Stock Exchange': ''}
+
+	headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.150 Safari/537.36'}
+	url = 'https://www.trading212.com/en/Trade-Equities'
+	req = requests.get(url=url, headers=headers)
+	
+	soup = bs4.BeautifulSoup(req.text, 'lxml')
+
+	l = [t for t in soup.find_all('div', {'id': re.compile('equity-row-[0-9]+')})]
+	tickers = [[str(i.find('div', {'data-label': 'Instrument'}).text+mappings[i.find('div', {'data-label': 'Market name'}).text])] for i in l[6:]]
+
+	return tickers
 
 def get_credentials(account='email'):
 	with open(CONFIG_FILE) as f:
@@ -178,7 +198,7 @@ def compute_ticker_df(ticker=None, period='max'):
 		df['Break_20'] = compute_break_sma_20(df)
 		df['Stage'] = compute_stage(df)
 
-
+		df = df.round(decimals=3)
 		# df = df.drop(columns=['Volume', 'Stock Splits'])
 		df = df.reset_index().set_index('Ticker')
 
@@ -202,13 +222,14 @@ def compute_last_day_market_df(ticker_list):
 
 
 def get_market_df(ticker_list):
-	if os.path.isfile('last_day.csv') and os.path.getmtime('last_day.csv') > time.time() - 12 * 3600:
-		df_market = pd.read_csv('last_day.csv', index_col='Ticker')
-	else:
-		df_market = compute_last_day_market_df(ticker_list)
-		if not df_market.empty:
-			df_market.to_csv('last_day.csv')
+	# if os.path.isfile('last_day.csv') and os.path.getmtime('last_day.csv') > time.time() - 12 * 3600:
+	# 	df_market = pd.read_csv('last_day.csv', index_col='Ticker')
+	# else:
+	# 	df_market = compute_last_day_market_df(ticker_list)
+	# 	if not df_market.empty:
+	# 		df_market.to_csv('last_day.csv')
 
+	df_market = compute_last_day_market_df(ticker_list)
 	return df_market
 
 
@@ -246,6 +267,8 @@ def get_worksheet(url, sheet):
 
 
 def main():
+	t0 = time.time()
+
 	tickers_to_manually_check = set()
 	alert_message = []
 
@@ -254,36 +277,43 @@ def main():
 	# sheet_name = argp['profile']
 
 	## iau worksheet-ul de lucru in functie de profil
-	sheet_name = "Moldo_Watchlist"
+	sheet_name = "T212"
 	# worksheet = get_worksheet(STOCKERS_URL, sheet_name)
 	gconn = gspread.service_account(filename=CREDENTIALS_JSON)
 	worksheet = gconn.open_by_url(STOCKERS_URL).worksheet(sheet_name)
 
 
+	## descarc tickerele de pe t212
+	# t212_tickers = scrape_t212_tickers()
+	# worksheet.update('A1', [['Ticker']] + t212_tickers)
+
 
 	## iau lista de tickere
 	# ticker_list = pd.DataFrame(worksheet.get_all_records())['TICKER'].tolist()
 	df_worksheet = pd.DataFrame(worksheet.get_all_records())
-	ticker_list = df_worksheet['TICKER'].tolist()
+	ticker_list = df_worksheet['Ticker'].tolist()
 
 	## construiesc market_df
 	df_market = get_market_df(ticker_list)
 	df_market = df_market.reset_index()
+	df_market = df_market.astype(str)
 	print(df_market)
 
 	## incarc market_df pe gsheet
-	# worksheet.update([df_market.columns.values.tolist()] + df_market.values.tolist())
+	worksheet.update([df_market.columns.values.tolist()] + df_market.values.tolist())
 
 
-	# ## construiesc si trimit alerta
+	## construiesc si trimit alerta
 	# tickers_to_manually_check = ', '.join(tickers_to_manually_check)
 	# alert_message = '\n'.join(map(str, alert_message))
 	# alert_message = 'Tickers you should check: ' + tickers_to_manually_check + '\n\n' + alert_message + '\n\n'
 	# # alert_message = 'Tickers you should check: ' + tickers_to_manually_check + '\n\n' + alert_message + '\n\n' + tabulate(df_market, headers='keys', tablefmt='psql')
 
 	# print(alert_message)
-	# # send_mail_alert(alert_message=alert_message)
+	# send_mail_alert(alert_message=alert_message)
 
+	print(f'Computation took: {(time.time() - t0):.2f} seconds')
 
 if __name__ == '__main__':
 	main()
+
