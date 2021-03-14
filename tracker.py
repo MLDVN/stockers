@@ -27,17 +27,17 @@ MARKETS = ['us', 'gb', 'de', 'es', 'fr', 'ch', 'nl', 'non-us']  # using ticker i
 def get_parser():
     parser = argparse.ArgumentParser(description='Stock tracker argument parser.')
     parser.add_argument('-p','--profile', type=str, default='T212', choices=PROFILE_SHEETS,
-                        help='profile of tickers to use representing a sheet; default: T212')
+                        help='profile of tickers to use representing a sheet; default: T212.')
     parser.add_argument('-e','--exchange', type=str, default='', choices=MARKETS,
-                        help='stock exchange to use (US, NON-US, L, DE, PA, MC, AS, SW); default: all')
+                        help='stock exchange to use (us, gb, de, es, fr, ch, nl, non-us); default: all.')
     parser.add_argument('-t', '--ticker', type=str, default='',
-                        help='provide data for one ticker only')
+                        help='provide data for one ticker only.')
     parser.add_argument('-l', '--last_day_only', action='store_true',
-                        help='get only the last day of trading data if it is set')
+                        help='get only the last day of trading data if it is set.')
     parser.add_argument('-u', '--update_worksheet', action='store_true',
-                        help='update worksheet if it is set')
+                        help='update worksheet if it is set.')
     parser.add_argument('-tp', '--ticker_period', type=str, default='max',
-                        help='period of time to retrieve data for a ticker')
+                        help='period of time to retrieve data for a ticker; default: max.')
 
     return parser.parse_args()
 
@@ -243,23 +243,21 @@ def main():
     ## iau lista de tickere
     df_worksheet = pd.DataFrame(worksheet.get_all_records())  # get the data in a DataFrame in case we store more data there, in the future
     ticker_list = df_worksheet['Ticker'].tolist()
-    print(df_worksheet)
-
 
     ## construiesc market_df
-    # df_market = get_market_df(ticker_list, last_day_only)
-    # df_market = df_market.reset_index()
-    # df_market = df_market.astype(str)
+    df_market = get_market_df(ticker_list, last_day_only)
+    df_market = df_market.reset_index()
+    df_market = df_market.astype(str)
 
-    # ## filtrez in functie de bursa
-    # if exchange:
-    #     df_market = filter_exchange(df_market, exchange)
+    ## filtrez in functie de bursa
+    if exchange:
+        df_market = filter_exchange(df_market, exchange)
 
-    # print(df_market)
+    print(df_market)
 
-    # ## incarc market_df pe gsheet
-    # if update_worksheet:
-    #     worksheet.update([df_market.columns.values.tolist()] + df_market.values.tolist())
+    ## incarc market_df pe gsheet
+    if update_worksheet:
+        worksheet.update([df_market.columns.values.tolist()] + df_market.values.tolist())
 
 
     print(f'Computation took: {(time.time() - t0):.2f} seconds')
